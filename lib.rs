@@ -1,33 +1,46 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
-// pink_extension is short for Phala ink! extension
-use pink_extension as pink;
-
-#[pink::contract(env=PinkEnvironment)]
-mod balance_tokenomic {
-    use super::pink;
+#[ink::contract(env = pink_extension::PinkEnvironment)]
+mod tokenomic {
+    use alloc::{format, string::String};
     use chrono::{DateTime, NaiveDateTime, Utc};
-    use ink_prelude::{format, string::String};
-    use pink::{http_get, PinkEnvironment};
+    use fixed::types::U64F64;
+    use fixed_macro::fixed;
+    use pink_extension::http_get;
     use pink_subrpc::{get_storage, storage::storage_prefix};
     use scale::{Decode, Encode};
     use serde::Deserialize;
     use serde_json::from_slice;
 
-    const COMPUTING_PERIOD: i64 = 24 * 60 * 60 * 1000; // 24 hours
-    const ONE_DAY: i64 = 24 * 60 * 60 * 1000;
-    const ONE_DAY_BUDGET: i64 = 720_000;
-    const ONE_PERIOD_BUDGET: f64 = ((COMPUTING_PERIOD / ONE_DAY) * ONE_DAY_BUDGET) as f64;
+    const COMPUTING_PERIOD: u64 = 24 * 60 * 60 * 1000; // 24 hours
+    const ONE_MINUTE: u64 = 60 * 1000;
+    const ONE_MINUTE_BUDGET: u64 = 500_000_000_000_000;
+    const ONE_PERIOD_BUDGET: u64 = ONE_MINUTE_BUDGET * (COMPUTING_PERIOD / ONE_MINUTE);
     const NONCE_OFFSET: i64 = -19430; // based on contract first run date
     const HALVING_PERIOD: i64 = 180 * 24 * 60 * 60 * 1000; // 180 days
     const HALVING_START_INDEX: i64 = 1;
-    const HALVING_RATIO: f64 = 0.75;
+    const HALVING_RATIO: U64F64 = fixed!(0.75: U64F64);
     const HALVING_START_TIME: i64 = 1_685_923_200_000; // UNIX timestamp for 2023-06-05T00:00:00.000Z
+
+    fn pow(x: U64F64, n: u32) -> U64F64 {
+        let mut i = n;
+        let mut x_pow2 = x;
+        let mut z = fixed!(1: U64F64);
+        while i > 0 {
+            if i & 1 == 1 {
+                z *= x_pow2;
+            }
+            x_pow2 *= x_pow2;
+            i >>= 1;
+        }
+        z
+    }
 
     #[derive(Debug, PartialEq, Eq, Encode, Decode)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
     pub enum Error {
+        InvalidStorage,
         HttpRequestFailed,
         InvalidResponseBody,
         BlockNotFound,
@@ -40,7 +53,7 @@ mod balance_tokenomic {
     /// All the fields will be encrypted and stored on-chain.
     /// In this stateless example, we just add a useless field for demo.
     #[ink(storage)]
-    pub struct BalanceTokenomic {
+    pub struct Tokenomic {
         // TODO: May be generate a new key pair here to send extrinsic
     }
 
@@ -93,38 +106,52 @@ mod balance_tokenomic {
         date_time.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
     }
 
-    fn get_budget_per_block(shares: f64, total_shares: f64, block_count: u32, halving: f64) -> f64 {
-        shares / total_shares * ONE_PERIOD_BUDGET * halving / block_count as f64
+    fn get_budget_per_block(
+        shares: u64,
+        total_shares: u64,
+        block_count: u32,
+        halving: U64F64,
+    ) -> U64F64 {
+        U64F64::from_num(shares) / U64F64::from_num(total_shares) / U64F64::from_num(block_count)
+            * U64F64::from_num(ONE_PERIOD_BUDGET)
+            * halving
+    }
+
+    fn fetch_nonce(endpoint: String) -> Result<u64> {
+        // TODO: Use subrpc to get nonce
+        let raw_storage = get_storage(
+            endpoint.as_str(),
+            &storage_prefix("Aura", "CurrentSlot")[..],
+            None,
+        )
+        .or(Err(Error::HttpRequestFailed))
+        .unwrap()
+        .unwrap();
+
+        let nonce = scale::Decode::decode(&mut raw_storage.as_slice())
+            .or(Err(Error::InvalidStorage))
+            .unwrap();
+
+        Ok(nonce)
     }
 
     impl Chain {
-        fn fetch_nonce(&mut self) -> Result<u64> {
-            // TODO: Use subrpc to get nonce
-            let raw_storage = get_storage(
-                &self.endpoint,
-                &storage_prefix("Aura", "CurrentSlot")[..],
-                None,
-            )
-            .unwrap()
-            .unwrap();
-
-            // .log_err("Read storage [sub native balance] failed")
-            // .map_err(|_| Error::FetchDataFailed)?
-            let nonce = scale::Decode::decode(&mut raw_storage.as_slice()).unwrap();
-            // .log_err("Decode storage failed")
-            // .map_err(|_| Error::DecodeStorageFailed)?;
-
-            self.nonce = nonce;
-            println!("{} nonce: {}", self.name, nonce);
-            Ok(nonce)
+        pub fn new(name: String, endpoint: String, archive_url: String) -> Self {
+            let endpoint_clone = endpoint.clone();
+            Self {
+                name,
+                endpoint,
+                archive_url,
+                nonce: fetch_nonce(endpoint_clone).unwrap(),
+            }
         }
 
-        fn fetch_shares(&self) -> Result<f64> {
-            let shares: f64 = 2.0;
+        fn fetch_shares(&self) -> Result<u64> {
+            let shares: u64 = 2;
             Ok(shares)
         }
 
-        pub fn send_extrinsic(&self, nonce: u64, budget_per_block: f64) {
+        pub fn send_extrinsic(&self, nonce: u64, _budget_per_block: U64F64) {
             if nonce > self.nonce {
                 // TODO: Use subrpc to send extrinsic here
             }
@@ -153,15 +180,15 @@ mod balance_tokenomic {
             }
         }
 
-        pub fn fetch_block_by_timestamp(&self, timestamp: i64) -> Result<Block> {
-            self.fetch_block(format!("%7B%20blocksConnection(orderBy%3A%20height_ASC%20first%3A%201%20where%3A%20%7Btimestamp_gte%3A%20%22{}%22%7D%20)%20%7B%20edges%20%7B%20node%20%7B%20timestamp%20height%20%7D%20%7D%20%7D%20%7D", timestamp_to_iso(timestamp)))
+        pub fn fetch_block_by_timestamp(&self, timestamp: u64) -> Result<Block> {
+            self.fetch_block(format!("%7B%20blocksConnection(orderBy%3A%20height_ASC%20first%3A%201%20where%3A%20%7Btimestamp_gte%3A%20%22{}%22%7D%20)%20%7B%20edges%20%7B%20node%20%7B%20timestamp%20height%20%7D%20%7D%20%7D%20%7D", timestamp_to_iso(timestamp as i64)))
         }
 
         pub fn fetch_latest_block(&self) -> Result<Block> {
             self.fetch_block(String::from("%7B%20blocksConnection(orderBy%3A%20height_DESC%20first%3A%201)%20%7B%20edges%20%7B%20node%20%7B%20timestamp%20height%20%7D%20%7D%20%7D%20%7D"))
         }
 
-        pub fn fetch_period_block_count(&self, end_time: i64, period: i64) -> Result<u32> {
+        pub fn fetch_period_block_count(&self, end_time: u64, period: u64) -> Result<u32> {
             let start_time = end_time - period;
             let start_block = self.fetch_block_by_timestamp(start_time).unwrap();
             let end_block = self.fetch_block_by_timestamp(end_time).unwrap();
@@ -169,7 +196,7 @@ mod balance_tokenomic {
         }
     }
 
-    impl BalanceTokenomic {
+    impl Tokenomic {
         /// Constructor to initializes your contract
         #[ink(constructor)]
         pub fn new() -> Self {
@@ -177,32 +204,28 @@ mod balance_tokenomic {
         }
 
         #[ink(message)]
-        pub fn balance(&self) {
-            let mut phala = Chain {
-                name: String::from("Phala"),
-                endpoint: String::from("https://khala.api.onfinality.io/public-ws"),
-                archive_url: String::from("https://phala.explorer.subsquid.io/graphql"),
-                nonce: u64::MAX,
-            };
-            let mut khala = Chain {
-                name: String::from("Khala"),
-                endpoint: String::from("https://khala.api.onfinality.io/public-ws"),
-                archive_url: String::from("https://khala.explorer.subsquid.io/graphql"),
-                nonce: u64::MAX,
-            };
-            // phala.fetch_nonce().unwrap();
-            // khala.fetch_nonce().unwrap();
+        pub fn balance(&self) -> (u64, u64) {
+            let phala = Chain::new(
+                String::from("Phala"),
+                String::from("https://khala.api.onfinality.io/public-ws"),
+                String::from("https://phala.explorer.subsquid.io/graphql"),
+            );
+            let khala = Chain::new(
+                String::from("Khala"),
+                String::from("https://khala.api.onfinality.io/public-ws"),
+                String::from("https://khala.explorer.subsquid.io/graphql"),
+            );
 
             let phala_latest_block = phala.fetch_latest_block().unwrap();
             let timestamp = DateTime::parse_from_rfc3339(&phala_latest_block.timestamp)
                 .unwrap()
-                .timestamp_millis();
+                .timestamp_millis() as u64;
             let halving_index =
-                HALVING_START_INDEX + ((timestamp - HALVING_START_TIME) / HALVING_PERIOD);
-            let halving = HALVING_RATIO.powi(halving_index as i32);
+                HALVING_START_INDEX + ((timestamp as i64 - HALVING_START_TIME) / HALVING_PERIOD);
+            let halving = pow(HALVING_RATIO, halving_index as u32);
             let period_index = timestamp / COMPUTING_PERIOD;
             let period_end = period_index * COMPUTING_PERIOD;
-            let nonce = u64::try_from(period_index + NONCE_OFFSET).unwrap();
+            let nonce = u64::try_from(period_index as i64 + NONCE_OFFSET).unwrap();
             // if phala.nonce >= nonce || khala.nonce >= nonce {
             //     return;
             // }
@@ -232,6 +255,11 @@ mod balance_tokenomic {
 
             phala.send_extrinsic(nonce, phala_budget_per_block);
             khala.send_extrinsic(nonce, khala_budget_per_block);
+
+            (
+                phala_budget_per_block.to_num(),
+                khala_budget_per_block.to_num(),
+            )
         }
     }
 
@@ -242,8 +270,7 @@ mod balance_tokenomic {
     mod tests {
         /// Imports all the definitions from the outer scope so we can use them here.
         use super::*;
-        /// Imports `ink_lang` so we can use `#[ink::test]`.
-        use ink_lang as ink;
+        use ink;
 
         /// We test a simple use case of our contract.
         #[ink::test]
@@ -252,9 +279,9 @@ mod balance_tokenomic {
             // mock is needed for local test
             pink_extension_runtime::mock_ext::mock_all_ext();
 
-            let balance_tokenomic = BalanceTokenomic::new();
+            let tokenomic = Tokenomic::new();
 
-            balance_tokenomic.balance();
+            tokenomic.balance();
         }
     }
 }
