@@ -44,6 +44,7 @@ mod tokenomic {
         HttpRequestFailed,
         InvalidResponseBody,
         BlockNotFound,
+        InvalidNonce,
     }
 
     /// Type alias for the contract's result type.
@@ -94,6 +95,8 @@ mod tokenomic {
         pub endpoint: String,
         pub archive_url: String,
         pub nonce: u64,
+        pub period_block_count: u32,
+        pub shares: u64,
     }
 
     fn timestamp_to_iso(timestamp: i64) -> String {
@@ -104,17 +107,6 @@ mod tokenomic {
 
         // Mock JavaScript's .toISOString()
         date_time.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
-    }
-
-    fn get_budget_per_block(
-        shares: u64,
-        total_shares: u64,
-        block_count: u32,
-        halving: U64F64,
-    ) -> U64F64 {
-        U64F64::from_num(shares) / U64F64::from_num(total_shares) / U64F64::from_num(block_count)
-            * U64F64::from_num(ONE_PERIOD_BUDGET)
-            * halving
     }
 
     fn fetch_nonce(endpoint: String) -> Result<u64> {
@@ -143,11 +135,14 @@ mod tokenomic {
                 endpoint,
                 archive_url,
                 nonce: fetch_nonce(endpoint_clone).unwrap(),
+                period_block_count: 0,
+                shares: 0,
             }
         }
 
-        fn fetch_shares(&self) -> Result<u64> {
+        fn fetch_shares(&mut self) -> Result<u64> {
             let shares: u64 = 2;
+            self.shares = shares;
             Ok(shares)
         }
 
@@ -188,11 +183,21 @@ mod tokenomic {
             self.fetch_block(String::from("%7B%20blocksConnection(orderBy%3A%20height_DESC%20first%3A%201)%20%7B%20edges%20%7B%20node%20%7B%20timestamp%20height%20%7D%20%7D%20%7D%20%7D"))
         }
 
-        pub fn fetch_period_block_count(&self, end_time: u64, period: u64) -> Result<u32> {
+        pub fn fetch_period_block_count(&mut self, end_time: u64, period: u64) -> Result<u32> {
             let start_time = end_time - period;
             let start_block = self.fetch_block_by_timestamp(start_time).unwrap();
             let end_block = self.fetch_block_by_timestamp(end_time).unwrap();
-            Ok(end_block.height - start_block.height)
+            let count = end_block.height - start_block.height;
+            self.period_block_count = count;
+            Ok(count)
+        }
+
+        pub fn set_budget_per_block(&self, total_shares: u64, halving: U64F64) -> U64F64 {
+            U64F64::from_num(self.shares)
+                / U64F64::from_num(total_shares)
+                / U64F64::from_num(self.period_block_count)
+                * U64F64::from_num(ONE_PERIOD_BUDGET)
+                * halving
         }
     }
 
@@ -204,13 +209,13 @@ mod tokenomic {
         }
 
         #[ink(message)]
-        pub fn balance(&self) -> (u64, u64) {
-            let phala = Chain::new(
+        pub fn balance(&self) -> Result<(u64, u64)> {
+            let mut phala = Chain::new(
                 String::from("Phala"),
                 String::from("https://khala.api.onfinality.io/public-ws"),
                 String::from("https://phala.explorer.subsquid.io/graphql"),
             );
-            let khala = Chain::new(
+            let mut khala = Chain::new(
                 String::from("Khala"),
                 String::from("https://khala.api.onfinality.io/public-ws"),
                 String::from("https://khala.explorer.subsquid.io/graphql"),
@@ -226,8 +231,8 @@ mod tokenomic {
             let period_index = timestamp / COMPUTING_PERIOD;
             let period_end = period_index * COMPUTING_PERIOD;
             let nonce = u64::try_from(period_index as i64 + NONCE_OFFSET).unwrap();
-            // if phala.nonce >= nonce || khala.nonce >= nonce {
-            //     return;
+            // if phala.nonce >= nonce && khala.nonce >= nonce {
+            //     return Err(Error::InvalidNonce);
             // }
 
             let phala_block_count = phala
@@ -240,10 +245,8 @@ mod tokenomic {
             let phala_shares = phala.fetch_shares().unwrap();
             let khala_shares = khala.fetch_shares().unwrap();
             let total_shares = phala_shares + khala_shares;
-            let phala_budget_per_block =
-                get_budget_per_block(phala_shares, total_shares, phala_block_count, halving);
-            let khala_budget_per_block =
-                get_budget_per_block(khala_shares, total_shares, khala_block_count, halving);
+            let phala_budget_per_block = phala.set_budget_per_block(total_shares, halving);
+            let khala_budget_per_block = khala.set_budget_per_block(total_shares, halving);
 
             println!("phala_latest_block: {:?}", phala_latest_block.timestamp);
             println!("nonce: {}", nonce);
@@ -256,10 +259,10 @@ mod tokenomic {
             phala.send_extrinsic(nonce, phala_budget_per_block);
             khala.send_extrinsic(nonce, khala_budget_per_block);
 
-            (
+            Ok((
                 phala_budget_per_block.to_num(),
                 khala_budget_per_block.to_num(),
-            )
+            ))
         }
     }
 
