@@ -44,11 +44,12 @@ mod tokenomic {
         HttpRequestFailed,
         InvalidResponseBody,
         BlockNotFound,
+        SharesNotFound,
         InvalidNonce,
     }
 
     /// Type alias for the contract's result type.
-    pub type Result<T> = core::result::Result<T, Error>;
+    pub type Result<T, E = Error> = core::result::Result<T, E>;
 
     /// Defines the storage of your contract.
     /// All the fields will be encrypted and stored on-chain.
@@ -85,6 +86,22 @@ mod tokenomic {
         blocks_connection: BlocksConnection,
     }
 
+    #[derive(Deserialize, Encode, Clone, Debug, PartialEq)]
+    pub struct SnapshotNode {
+        shares: String,
+    }
+
+    #[derive(Deserialize, Encode, Clone, Debug, PartialEq)]
+    struct SnapshotsConnection {
+        edges: Vec<ConnectionEdge<SnapshotNode>>,
+    }
+
+    #[derive(Deserialize, Encode, Clone, Debug, PartialEq)]
+    #[serde(rename_all = "camelCase")]
+    struct SnapshotData {
+        worker_shares_snapshots_connection: SnapshotsConnection,
+    }
+
     pub struct Block {
         timestamp: String,
         height: u32,
@@ -94,9 +111,10 @@ mod tokenomic {
         pub name: String,
         pub endpoint: String,
         pub archive_url: String,
+        pub squid_url: String,
         pub nonce: u64,
         pub period_block_count: u32,
-        pub shares: u64,
+        pub shares: U64F64,
     }
 
     fn timestamp_to_iso(timestamp: i64) -> String {
@@ -128,22 +146,38 @@ mod tokenomic {
     }
 
     impl Chain {
-        pub fn new(name: String, endpoint: String, archive_url: String) -> Self {
+        pub fn new(name: String, endpoint: String, archive_url: String, squid_url: String) -> Self {
             let endpoint_clone = endpoint.clone();
             Self {
                 name,
                 endpoint,
                 archive_url,
+                squid_url,
                 nonce: fetch_nonce(endpoint_clone).unwrap(),
                 period_block_count: 0,
-                shares: 0,
+                shares: fixed!(0: U64F64),
             }
         }
 
-        fn fetch_shares(&mut self) -> Result<u64> {
-            let shares: u64 = 2;
-            self.shares = shares;
-            Ok(shares)
+        fn fetch_shares_by_timestamp(&mut self, timestamp: u64) -> Result<U64F64> {
+            let resp = http_get!(format!("{}?query=%7B%20workerSharesSnapshotsConnection(orderBy%3A%20updatedTime_ASC%2C%20first%3A%201%2C%20where%3A%20%7BupdatedTime_gte%3A%20%22{}%22%7D)%20%7B%20edges%20%7B%20node%20%7B%20shares%20%7D%20%7D%20%7D%20%7D%0A", self.squid_url, timestamp_to_iso(timestamp as i64)));
+            if resp.status_code != 200 {
+                return Err(Error::HttpRequestFailed);
+            }
+            let result: GraphQLResponse<SnapshotData> = from_slice(&resp.body).unwrap();
+
+            match result.data.worker_shares_snapshots_connection.edges.len() {
+                0 => return Err(Error::SharesNotFound),
+                _ => Ok({
+                    let node = result.data.worker_shares_snapshots_connection.edges[0]
+                        .node
+                        .clone();
+
+                    let shares = U64F64::from_str(&node.shares).unwrap();
+                    self.shares = shares;
+                    shares
+                }),
+            }
         }
 
         pub fn send_extrinsic(&self, nonce: u64, _budget_per_block: U64F64) {
@@ -192,10 +226,8 @@ mod tokenomic {
             Ok(count)
         }
 
-        pub fn set_budget_per_block(&self, total_shares: u64, halving: U64F64) -> U64F64 {
-            U64F64::from_num(self.shares)
-                / U64F64::from_num(total_shares)
-                / U64F64::from_num(self.period_block_count)
+        pub fn set_budget_per_block(&self, total_shares: U64F64, halving: U64F64) -> U64F64 {
+            self.shares / total_shares / U64F64::from_num(self.period_block_count)
                 * U64F64::from_num(ONE_PERIOD_BUDGET)
                 * halving
         }
@@ -212,13 +244,19 @@ mod tokenomic {
         pub fn balance(&self) -> Result<(u64, u64)> {
             let mut phala = Chain::new(
                 String::from("Phala"),
-                String::from("https://khala.api.onfinality.io/public-ws"),
-                String::from("https://phala.explorer.subsquid.io/graphql"),
+                // String::from("https://phala.api.onfinality.io/public-ws"),
+                String::from("https://pc-test-5.phala.network/phala/rpc"),
+                // String::from("https://phala.explorer.subsquid.io/graphql"),
+                String::from("http://54.39.243.230:4005/graphql"),
+                String::from("http://54.39.243.230:4355/graphql"),
             );
             let mut khala = Chain::new(
                 String::from("Khala"),
-                String::from("https://khala.api.onfinality.io/public-ws"),
-                String::from("https://khala.explorer.subsquid.io/graphql"),
+                // String::from("https://khala.api.onfinality.io/public-ws"),
+                String::from("https://pc-test-3.phala.network/khala/rpc"),
+                // String::from("https://khala.explorer.subsquid.io/graphql"),
+                String::from("http://54.39.243.230:4003/graphql"),
+                String::from("http://54.39.243.230:4353/graphql"),
             );
 
             let phala_latest_block = phala.fetch_latest_block().unwrap();
@@ -242,8 +280,12 @@ mod tokenomic {
                 .fetch_period_block_count(period_end, COMPUTING_PERIOD)
                 .unwrap();
 
-            let phala_shares = phala.fetch_shares().unwrap();
-            let khala_shares = khala.fetch_shares().unwrap();
+            let phala_shares = phala
+                .fetch_shares_by_timestamp(timestamp - 10 * 60 * 1000)
+                .unwrap();
+            let khala_shares = khala
+                .fetch_shares_by_timestamp(timestamp - 10 * 60 * 1000)
+                .unwrap();
             let total_shares = phala_shares + khala_shares;
             let phala_budget_per_block = phala.set_budget_per_block(total_shares, halving);
             let khala_budget_per_block = khala.set_budget_per_block(total_shares, halving);
