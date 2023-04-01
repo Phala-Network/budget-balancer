@@ -295,6 +295,8 @@ mod tokenomic {
             println!("halving: {}", halving);
             println!("phala_block_count: {}", phala_block_count);
             println!("khala_block_count: {}", khala_block_count);
+            println!("phala_shares: {}", phala_shares);
+            println!("khala_shares: {}", khala_shares);
             println!("phala_budget_per_block: {}", phala_budget_per_block);
             println!("khala_budget_per_block: {}", khala_budget_per_block);
 
