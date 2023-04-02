@@ -1,14 +1,19 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
-#[ink::contract(env = pink_extension::PinkEnvironment)]
-mod tokenomic {
-    use alloc::{format, string::String};
+#[ink::contract(env=pink_extension::PinkEnvironment)]
+mod tokenomic_contract {
+    use alloc::{format, string::String, vec::Vec};
     use chrono::{DateTime, NaiveDateTime, Utc};
     use fixed::types::U64F64;
     use fixed_macro::fixed;
-    use pink_extension::http_get;
-    use pink_subrpc::{get_storage, storage::storage_prefix};
+    use pink_extension::{
+        chain_extension::{signing, SigType},
+        http_get,
+    };
+    use pink_subrpc::{
+        create_transaction, get_storage, send_transaction, storage::storage_prefix, ExtraParam,
+    };
     use scale::{Decode, Encode};
     use serde::Deserialize;
     use serde_json::from_slice;
@@ -51,12 +56,10 @@ mod tokenomic {
     /// Type alias for the contract's result type.
     pub type Result<T, E = Error> = core::result::Result<T, E>;
 
-    /// Defines the storage of your contract.
-    /// All the fields will be encrypted and stored on-chain.
-    /// In this stateless example, we just add a useless field for demo.
     #[ink(storage)]
     pub struct Tokenomic {
-        // TODO: May be generate a new key pair here to send extrinsic
+        pub executor_account: [u8; 32],
+        pub executor_private_key: [u8; 32],
     }
 
     #[derive(Deserialize, Encode, Clone, Debug, PartialEq)]
@@ -123,8 +126,7 @@ mod tokenomic {
             Utc,
         );
 
-        // Mock JavaScript's .toISOString()
-        date_time.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
+        date_time.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
     }
 
     fn fetch_nonce(endpoint: String) -> Result<u64> {
@@ -180,9 +182,19 @@ mod tokenomic {
             }
         }
 
-        pub fn send_extrinsic(&self, nonce: u64, _budget_per_block: U64F64) {
+        pub fn send_extrinsic(&self, signer: [u8; 32], nonce: u64, budget_per_block: U64F64) {
             if nonce > self.nonce {
-                // TODO: Use subrpc to send extrinsic here
+                let signed_tx = create_transaction(
+                    &signer, // FIXME: get signer from private key?
+                    &self.name.as_str(),
+                    &self.endpoint,
+                    0x5cu8,
+                    0x00u8,
+                    (nonce, budget_per_block.to_bits()), // FIXME: u128 value
+                    ExtraParam::default(),
+                )
+                .unwrap();
+                send_transaction(&self.endpoint, &signed_tx).unwrap();
             }
         }
 
@@ -237,7 +249,17 @@ mod tokenomic {
         /// Constructor to initializes your contract
         #[ink(constructor)]
         pub fn new() -> Self {
-            Self {}
+            // FIXME: use random seed?
+            let private_key =
+                pink_web3::keys::pink::KeyPair::derive_keypair(b"executor").private_key();
+            let account32: [u8; 32] = signing::get_public_key(&private_key, SigType::Sr25519)
+                .try_into()
+                .expect("length should be 32");
+
+            Self {
+                executor_account: account32,
+                executor_private_key: private_key,
+            }
         }
 
         #[ink(message)]
@@ -273,10 +295,10 @@ mod tokenomic {
             //     return Err(Error::InvalidNonce);
             // }
 
-            let phala_block_count = phala
+            phala
                 .fetch_period_block_count(period_end, COMPUTING_PERIOD)
                 .unwrap();
-            let khala_block_count = khala
+            khala
                 .fetch_period_block_count(period_end, COMPUTING_PERIOD)
                 .unwrap();
 
@@ -290,18 +312,18 @@ mod tokenomic {
             let phala_budget_per_block = phala.set_budget_per_block(total_shares, halving);
             let khala_budget_per_block = khala.set_budget_per_block(total_shares, halving);
 
-            println!("phala_latest_block: {:?}", phala_latest_block.timestamp);
-            println!("nonce: {}", nonce);
-            println!("halving: {}", halving);
-            println!("phala_block_count: {}", phala_block_count);
-            println!("khala_block_count: {}", khala_block_count);
-            println!("phala_shares: {}", phala_shares);
-            println!("khala_shares: {}", khala_shares);
-            println!("phala_budget_per_block: {}", phala_budget_per_block);
-            println!("khala_budget_per_block: {}", khala_budget_per_block);
+            // println!("phala_latest_block: {:?}", phala_latest_block.timestamp);
+            // println!("nonce: {}", nonce);
+            // println!("halving: {}", halving);
+            // println!("phala_block_count: {}", phala_block_count);
+            // println!("khala_block_count: {}", khala_block_count);
+            // println!("phala_shares: {}", phala_shares);
+            // println!("khala_shares: {}", khala_shares);
+            // println!("phala_budget_per_block: {}", phala_budget_per_block);
+            // println!("khala_budget_per_block: {}", khala_budget_per_block);
 
-            phala.send_extrinsic(nonce, phala_budget_per_block);
-            khala.send_extrinsic(nonce, khala_budget_per_block);
+            phala.send_extrinsic(self.executor_private_key, nonce, phala_budget_per_block);
+            khala.send_extrinsic(self.executor_private_key, nonce, khala_budget_per_block);
 
             Ok((
                 phala_budget_per_block.to_num(),
@@ -328,7 +350,7 @@ mod tokenomic {
 
             let tokenomic = Tokenomic::new();
 
-            tokenomic.balance();
+            tokenomic.balance().unwrap();
         }
     }
 }
