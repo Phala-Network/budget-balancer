@@ -59,7 +59,7 @@ mod tokenomic_contract {
     #[ink(storage)]
     pub struct Tokenomic {
         pub executor_account: [u8; 32],
-        pub executor_private_key: [u8; 32],
+        executor_private_key: [u8; 32],
     }
 
     #[derive(Deserialize, Encode, Clone, Debug, PartialEq)]
@@ -116,6 +116,7 @@ mod tokenomic_contract {
         pub archive_url: String,
         pub squid_url: String,
         pub nonce: u64,
+        pub period_last_block: u32,
         pub period_block_count: u32,
         pub shares: U64F64,
     }
@@ -130,10 +131,9 @@ mod tokenomic_contract {
     }
 
     fn fetch_nonce(endpoint: String) -> Result<u64> {
-        // TODO: Use subrpc to get nonce
         let raw_storage = get_storage(
             endpoint.as_str(),
-            &storage_prefix("Aura", "CurrentSlot")[..],
+            &storage_prefix("PhalaComputation", "budgetUpdateNonce"),
             None,
         )
         .or(Err(Error::HttpRequestFailed))
@@ -156,6 +156,7 @@ mod tokenomic_contract {
                 archive_url,
                 squid_url,
                 nonce: fetch_nonce(endpoint_clone).unwrap(),
+                period_last_block: 0,
                 period_block_count: 0,
                 shares: fixed!(0: U64F64),
             }
@@ -190,7 +191,7 @@ mod tokenomic_contract {
                     &self.endpoint,
                     0x5cu8,
                     0x00u8,
-                    (nonce, budget_per_block.to_bits()), // FIXME: u128 value
+                    (nonce, &self.period_last_block, budget_per_block.to_bits()), // FIXME: u128 value
                     ExtraParam::default(),
                 )
                 .unwrap();
@@ -233,6 +234,7 @@ mod tokenomic_contract {
             let start_time = end_time - period;
             let start_block = self.fetch_block_by_timestamp(start_time).unwrap();
             let end_block = self.fetch_block_by_timestamp(end_time).unwrap();
+            self.period_last_block = end_block.height;
             let count = end_block.height - start_block.height;
             self.period_block_count = count;
             Ok(count)
@@ -263,7 +265,7 @@ mod tokenomic_contract {
         }
 
         #[ink(message)]
-        pub fn balance(&self) -> Result<(u64, u64)> {
+        pub fn balance(&self) {
             let mut phala = Chain::new(
                 String::from("Phala"),
                 // String::from("https://phala.api.onfinality.io/public-ws"),
@@ -302,12 +304,8 @@ mod tokenomic_contract {
                 .fetch_period_block_count(period_end, COMPUTING_PERIOD)
                 .unwrap();
 
-            let phala_shares = phala
-                .fetch_shares_by_timestamp(timestamp - 10 * 60 * 1000)
-                .unwrap();
-            let khala_shares = khala
-                .fetch_shares_by_timestamp(timestamp - 10 * 60 * 1000)
-                .unwrap();
+            let phala_shares = phala.fetch_shares_by_timestamp(timestamp).unwrap();
+            let khala_shares = khala.fetch_shares_by_timestamp(timestamp).unwrap();
             let total_shares = phala_shares + khala_shares;
             let phala_budget_per_block = phala.set_budget_per_block(total_shares, halving);
             let khala_budget_per_block = khala.set_budget_per_block(total_shares, halving);
@@ -325,10 +323,10 @@ mod tokenomic_contract {
             phala.send_extrinsic(self.executor_private_key, nonce, phala_budget_per_block);
             khala.send_extrinsic(self.executor_private_key, nonce, khala_budget_per_block);
 
-            Ok((
-                phala_budget_per_block.to_num(),
-                khala_budget_per_block.to_num(),
-            ))
+            // Ok((
+            //     phala_budget_per_block.to_num(),
+            //     khala_budget_per_block.to_num(),
+            // ))
         }
     }
 
@@ -350,7 +348,7 @@ mod tokenomic_contract {
 
             let tokenomic = Tokenomic::new();
 
-            tokenomic.balance().unwrap();
+            tokenomic.balance();
         }
     }
 }
