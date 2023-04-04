@@ -5,6 +5,7 @@ edition = "2021"
 authors = ["kingsley"]
 
 [dependencies]
+pink-json = { version = "0.4.0", default-features = false }
 ink = { version = "4.0.1", default-features = false }
 scale = { package = "parity-scale-codec", version = "3", default-features = false, features = [
     "derive",
@@ -20,9 +21,6 @@ pink-extension = { version = "0.4.1", default-features = false, features = [
     "ink-as-dependency",
 ] }
 pink-subrpc = { version = "0.4.2", default-features = false }
-serde_json = { version = "1.0.94", default-features = false, features = [
-    "alloc",
-] }
 chrono = { version = "0.4.24", default-features = false, features = [
     "alloc",
     "serde",
@@ -32,6 +30,10 @@ fixed-macro = { version = "1.2.0", default-features = false }
 pink-web3 = { version = "0.20.1", default-features = false, features = [
     "pink",
     "signing",
+] }
+hex = { version = "0.4.3", default-features = false, features = [
+    "alloc",
+    "serde",
 ] }
 
 
@@ -56,6 +58,7 @@ std = [
     "pink-extension/std",
     "pink-subrpc/std",
     "pink-web3/std",
+    "pink-json/std",
 ]
 ink-as-dependency = []
 

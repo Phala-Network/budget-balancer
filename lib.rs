@@ -11,12 +11,12 @@ mod tokenomic_contract {
         chain_extension::{signing, SigType},
         http_get,
     };
+    use pink_json::from_slice;
     use pink_subrpc::{
         create_transaction, get_storage, send_transaction, storage::storage_prefix, ExtraParam,
     };
     use scale::{Decode, Encode};
     use serde::Deserialize;
-    use serde_json::from_slice;
 
     const COMPUTING_PERIOD: u64 = 24 * 60 * 60 * 1000; // 24 hours
     const ONE_MINUTE: u64 = 60 * 1000;
@@ -133,7 +133,7 @@ mod tokenomic_contract {
     fn fetch_nonce(endpoint: String) -> Result<u64> {
         let raw_storage = get_storage(
             endpoint.as_str(),
-            &storage_prefix("PhalaComputation", "budgetUpdateNonce"),
+            &storage_prefix("PhalaComputation", "BudgetUpdateNonce"),
             None,
         )
         .or(Err(Error::HttpRequestFailed))
@@ -186,12 +186,12 @@ mod tokenomic_contract {
         pub fn send_extrinsic(&self, signer: [u8; 32], nonce: u64, budget_per_block: U64F64) {
             if nonce > self.nonce {
                 let signed_tx = create_transaction(
-                    &signer, // FIXME: get signer from private key?
-                    &self.name.as_str(),
+                    &signer,
+                    &self.name,
                     &self.endpoint,
-                    0x5cu8,
-                    0x00u8,
-                    (nonce, &self.period_last_block, budget_per_block.to_bits()), // FIXME: u128 value
+                    0x57_u8,
+                    0x07_u8,
+                    (nonce, &self.period_last_block, budget_per_block.to_bits()),
                     ExtraParam::default(),
                 )
                 .unwrap();
@@ -256,7 +256,7 @@ mod tokenomic_contract {
                 pink_web3::keys::pink::KeyPair::derive_keypair(b"executor").private_key();
             let account32: [u8; 32] = signing::get_public_key(&private_key, SigType::Sr25519)
                 .try_into()
-                .expect("length should be 32");
+                .unwrap();
 
             Self {
                 executor_account: account32,
@@ -265,7 +265,12 @@ mod tokenomic_contract {
         }
 
         #[ink(message)]
-        pub fn balance(&self) {
+        pub fn get_executor_account(&self) -> String {
+            hex::encode(self.executor_account)
+        }
+
+        #[ink(message)]
+        pub fn balance(&self) -> Result<(u128, u128)> {
             let mut phala = Chain::new(
                 String::from("Phala"),
                 // String::from("https://phala.api.onfinality.io/public-ws"),
@@ -274,6 +279,7 @@ mod tokenomic_contract {
                 String::from("http://54.39.243.230:4005/graphql"),
                 String::from("http://54.39.243.230:4355/graphql"),
             );
+
             let mut khala = Chain::new(
                 String::from("Khala"),
                 // String::from("https://khala.api.onfinality.io/public-ws"),
@@ -293,9 +299,9 @@ mod tokenomic_contract {
             let period_index = timestamp / COMPUTING_PERIOD;
             let period_end = period_index * COMPUTING_PERIOD;
             let nonce = u64::try_from(period_index as i64 + NONCE_OFFSET).unwrap();
-            // if phala.nonce >= nonce && khala.nonce >= nonce {
-            //     return Err(Error::InvalidNonce);
-            // }
+            if phala.nonce >= nonce && khala.nonce >= nonce {
+                return Err(Error::InvalidNonce);
+            }
 
             phala
                 .fetch_period_block_count(period_end, COMPUTING_PERIOD)
@@ -304,29 +310,19 @@ mod tokenomic_contract {
                 .fetch_period_block_count(period_end, COMPUTING_PERIOD)
                 .unwrap();
 
-            let phala_shares = phala.fetch_shares_by_timestamp(timestamp).unwrap();
-            let khala_shares = khala.fetch_shares_by_timestamp(timestamp).unwrap();
+            let phala_shares = phala.fetch_shares_by_timestamp(period_end).unwrap();
+            let khala_shares = khala.fetch_shares_by_timestamp(period_end).unwrap();
             let total_shares = phala_shares + khala_shares;
             let phala_budget_per_block = phala.set_budget_per_block(total_shares, halving);
             let khala_budget_per_block = khala.set_budget_per_block(total_shares, halving);
 
-            // println!("phala_latest_block: {:?}", phala_latest_block.timestamp);
-            // println!("nonce: {}", nonce);
-            // println!("halving: {}", halving);
-            // println!("phala_block_count: {}", phala_block_count);
-            // println!("khala_block_count: {}", khala_block_count);
-            // println!("phala_shares: {}", phala_shares);
-            // println!("khala_shares: {}", khala_shares);
-            // println!("phala_budget_per_block: {}", phala_budget_per_block);
-            // println!("khala_budget_per_block: {}", khala_budget_per_block);
-
             phala.send_extrinsic(self.executor_private_key, nonce, phala_budget_per_block);
             khala.send_extrinsic(self.executor_private_key, nonce, khala_budget_per_block);
 
-            // Ok((
-            //     phala_budget_per_block.to_num(),
-            //     khala_budget_per_block.to_num(),
-            // ))
+            Ok((
+                phala_budget_per_block.to_bits(),
+                khala_budget_per_block.to_bits(),
+            ))
         }
     }
 
@@ -348,7 +344,8 @@ mod tokenomic_contract {
 
             let tokenomic = Tokenomic::new();
 
-            tokenomic.balance();
+            tokenomic.get_executor_account();
+            tokenomic.balance().unwrap();
         }
     }
 }
