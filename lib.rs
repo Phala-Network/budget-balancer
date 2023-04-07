@@ -20,7 +20,7 @@ mod tokenomic_contract {
 
     const COMPUTING_PERIOD: u64 = 24 * 60 * 60 * 1000; // 24 hours
     const ONE_MINUTE: u64 = 60 * 1000;
-    const ONE_MINUTE_BUDGET: u64 = 500_000_000_000_000;
+    const ONE_MINUTE_BUDGET: u64 = 500;
     const ONE_PERIOD_BUDGET: u64 = ONE_MINUTE_BUDGET * (COMPUTING_PERIOD / ONE_MINUTE);
     const NONCE_OFFSET: i64 = -19430; // based on contract first run date
     const HALVING_PERIOD: i64 = 180 * 24 * 60 * 60 * 1000; // 180 days
@@ -119,6 +119,7 @@ mod tokenomic_contract {
         pub period_last_block: u32,
         pub period_block_count: u32,
         pub shares: U64F64,
+        pub budget_per_block: U64F64,
     }
 
     fn timestamp_to_iso(timestamp: i64) -> String {
@@ -159,6 +160,7 @@ mod tokenomic_contract {
                 period_last_block: 0,
                 period_block_count: 0,
                 shares: fixed!(0: U64F64),
+                budget_per_block: fixed!(0: U64F64),
             }
         }
 
@@ -183,7 +185,7 @@ mod tokenomic_contract {
             }
         }
 
-        pub fn send_extrinsic(&self, signer: [u8; 32], nonce: u64, budget_per_block: U64F64) {
+        pub fn send_extrinsic(&self, signer: [u8; 32], nonce: u64) {
             if nonce > self.nonce {
                 let signed_tx = create_transaction(
                     &signer,
@@ -191,7 +193,11 @@ mod tokenomic_contract {
                     &self.endpoint,
                     0x57_u8,
                     0x07_u8,
-                    (nonce, &self.period_last_block, budget_per_block.to_bits()),
+                    (
+                        nonce,
+                        self.period_last_block,
+                        self.budget_per_block.to_bits(),
+                    ),
                     ExtraParam::default(),
                 )
                 .unwrap();
@@ -240,10 +246,11 @@ mod tokenomic_contract {
             Ok(count)
         }
 
-        pub fn set_budget_per_block(&self, total_shares: U64F64, halving: U64F64) -> U64F64 {
-            self.shares / total_shares / U64F64::from_num(self.period_block_count)
-                * U64F64::from_num(ONE_PERIOD_BUDGET)
-                * halving
+        pub fn set_budget_per_block(&mut self, total_shares: U64F64, halving: U64F64) {
+            self.budget_per_block =
+                self.shares / total_shares / U64F64::from_num(self.period_block_count)
+                    * U64F64::from_num(ONE_PERIOD_BUDGET)
+                    * halving
         }
     }
 
@@ -251,7 +258,6 @@ mod tokenomic_contract {
         /// Constructor to initializes your contract
         #[ink(constructor)]
         pub fn new() -> Self {
-            // FIXME: use random seed?
             let private_key =
                 pink_web3::keys::pink::KeyPair::derive_keypair(b"executor").private_key();
             let account32: [u8; 32] = signing::get_public_key(&private_key, SigType::Sr25519)
@@ -313,15 +319,15 @@ mod tokenomic_contract {
             let phala_shares = phala.fetch_shares_by_timestamp(period_end).unwrap();
             let khala_shares = khala.fetch_shares_by_timestamp(period_end).unwrap();
             let total_shares = phala_shares + khala_shares;
-            let phala_budget_per_block = phala.set_budget_per_block(total_shares, halving);
-            let khala_budget_per_block = khala.set_budget_per_block(total_shares, halving);
+            phala.set_budget_per_block(total_shares, halving);
+            khala.set_budget_per_block(total_shares, halving);
 
-            phala.send_extrinsic(self.executor_private_key, nonce, phala_budget_per_block);
-            khala.send_extrinsic(self.executor_private_key, nonce, khala_budget_per_block);
+            phala.send_extrinsic(self.executor_private_key, nonce);
+            khala.send_extrinsic(self.executor_private_key, nonce);
 
             Ok((
-                phala_budget_per_block.to_bits(),
-                khala_budget_per_block.to_bits(),
+                phala.budget_per_block.to_bits(),
+                khala.budget_per_block.to_bits(),
             ))
         }
     }
