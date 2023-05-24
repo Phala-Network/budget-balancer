@@ -132,20 +132,20 @@ mod tokenomic_contract {
     }
 
     fn fetch_nonce(endpoint: String) -> Result<u64> {
-        let raw_storage = get_storage(
+        let raw_storage_result = get_storage(
             endpoint.as_str(),
             &storage_prefix("PhalaComputation", "BudgetUpdateNonce"),
             None,
         )
-        .or(Err(Error::HttpRequestFailed))
-        .unwrap()
-        .unwrap();
+        .or(Err(Error::HttpRequestFailed))?;
 
-        let nonce = scale::Decode::decode(&mut raw_storage.as_slice())
-            .or(Err(Error::InvalidStorage))
-            .unwrap();
-
-        Ok(nonce)
+        if let Some(raw_storage) = raw_storage_result {
+            let nonce = scale::Decode::decode(&mut raw_storage.as_slice())
+                .or(Err(Error::InvalidStorage))?;
+            Ok(nonce)
+        } else {
+            Ok(0)
+        }
     }
 
     impl Chain {
