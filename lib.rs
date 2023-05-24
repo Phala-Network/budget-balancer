@@ -279,20 +279,16 @@ mod tokenomic_contract {
         pub fn balance(&self) -> Result<(u128, u128)> {
             let mut phala = Chain::new(
                 String::from("Phala"),
-                // String::from("https://phala.api.onfinality.io/public-ws"),
-                String::from("https://pc-test-5.phala.network/phala/rpc"),
-                // String::from("https://phala.explorer.subsquid.io/graphql"),
-                String::from("http://54.39.243.230:4005/graphql"),
-                String::from("http://54.39.243.230:4355/graphql"),
+                String::from("https://phala.api.onfinality.io/public-ws"),
+                String::from("https://phala.explorer.subsquid.io/graphql"),
+                String::from("https://squid.subsquid.io/phala-computation-lite/graphql"),
             );
 
             let mut khala = Chain::new(
                 String::from("Khala"),
-                // String::from("https://khala.api.onfinality.io/public-ws"),
-                String::from("https://pc-test-3.phala.network/khala/rpc"),
-                // String::from("https://khala.explorer.subsquid.io/graphql"),
-                String::from("http://54.39.243.230:4003/graphql"),
-                String::from("http://54.39.243.230:4353/graphql"),
+                String::from("https://khala.api.onfinality.io/public-ws"),
+                String::from("https://khala.explorer.subsquid.io/graphql"),
+                String::from("https://squid.subsquid.io/khala-computation-lite/graphql"),
             );
 
             let phala_latest_block = phala.fetch_latest_block().unwrap();
@@ -322,8 +318,8 @@ mod tokenomic_contract {
             phala.set_budget_per_block(total_shares, halving);
             khala.set_budget_per_block(total_shares, halving);
 
-            phala.send_extrinsic(self.executor_private_key, nonce);
-            khala.send_extrinsic(self.executor_private_key, nonce);
+            // phala.send_extrinsic(self.executor_private_key, nonce);
+            // khala.send_extrinsic(self.executor_private_key, nonce);
 
             Ok((
                 phala.budget_per_block.to_bits(),
@@ -350,8 +346,11 @@ mod tokenomic_contract {
 
             let tokenomic = Tokenomic::new();
 
-            tokenomic.get_executor_account();
-            tokenomic.balance().unwrap();
+            let account = tokenomic.get_executor_account();
+            println!("executor account: {}", account);
+            let result = tokenomic.balance().unwrap();
+            println!("phala budget: {}", result.0);
+            println!("khala budget: {}", result.1);
         }
     }
 }
