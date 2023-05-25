@@ -22,7 +22,7 @@ mod tokenomic_contract {
     const ONE_MINUTE: u64 = 60 * 1000;
     const ONE_MINUTE_BUDGET: u64 = 500;
     const ONE_PERIOD_BUDGET: u64 = ONE_MINUTE_BUDGET * (COMPUTING_PERIOD / ONE_MINUTE);
-    const NONCE_OFFSET: i64 = -19430; // based on contract first run date
+    const NONCE_OFFSET: i64 = -19500; // based on contract first run date
     const HALVING_PERIOD: i64 = 180 * 24 * 60 * 60 * 1000; // 180 days
     const HALVING_START_INDEX: i64 = 1;
     const HALVING_RATIO: U64F64 = fixed!(0.75: U64F64);
@@ -318,8 +318,8 @@ mod tokenomic_contract {
             phala.set_budget_per_block(total_shares, halving);
             khala.set_budget_per_block(total_shares, halving);
 
-            // phala.send_extrinsic(self.executor_private_key, nonce);
-            // khala.send_extrinsic(self.executor_private_key, nonce);
+            phala.send_extrinsic(self.executor_private_key, nonce);
+            khala.send_extrinsic(self.executor_private_key, nonce);
 
             Ok((
                 phala.budget_per_block.to_bits(),
