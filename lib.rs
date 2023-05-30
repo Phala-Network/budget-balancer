@@ -18,15 +18,15 @@ mod tokenomic_contract {
     use scale::{Decode, Encode};
     use serde::Deserialize;
 
-    const COMPUTING_PERIOD: u64 = 24 * 60 * 60 * 1000; // 24 hours
+    const PERIOD: u64 = 24 * 60 * 60 * 1000; // 24 hours
     const ONE_MINUTE: u64 = 60 * 1000;
     const ONE_MINUTE_BUDGET: u64 = 500;
-    const ONE_PERIOD_BUDGET: u64 = ONE_MINUTE_BUDGET * (COMPUTING_PERIOD / ONE_MINUTE);
+    const ONE_PERIOD_BUDGET: u64 = ONE_MINUTE_BUDGET * (PERIOD / ONE_MINUTE);
     const NONCE_OFFSET: i64 = -19500; // based on contract first run date
     const HALVING_PERIOD: i64 = 180 * 24 * 60 * 60 * 1000; // 180 days
     const HALVING_START_INDEX: i64 = 1;
     const HALVING_RATIO: U64F64 = fixed!(0.75: U64F64);
-    const HALVING_START_TIME: i64 = 1_685_923_200_000; // UNIX timestamp for 2023-06-05T00:00:00.000Z
+    const HALVING_START_TIME: i64 = 1_686_528_000_000; // UNIX timestamp for 2023-06-12T00:00:00.000Z
 
     fn pow(x: U64F64, n: u32) -> U64F64 {
         let mut i = n;
@@ -298,19 +298,15 @@ mod tokenomic_contract {
             let halving_index =
                 HALVING_START_INDEX + ((timestamp as i64 - HALVING_START_TIME) / HALVING_PERIOD);
             let halving = pow(HALVING_RATIO, halving_index as u32);
-            let period_index = timestamp / COMPUTING_PERIOD;
-            let period_end = period_index * COMPUTING_PERIOD;
+            let period_index = timestamp / PERIOD;
+            let period_end = period_index * PERIOD;
             let nonce = u64::try_from(period_index as i64 + NONCE_OFFSET).unwrap();
             if phala.nonce >= nonce && khala.nonce >= nonce {
                 return Err(Error::InvalidNonce);
             }
 
-            phala
-                .fetch_period_block_count(period_end, COMPUTING_PERIOD)
-                .unwrap();
-            khala
-                .fetch_period_block_count(period_end, COMPUTING_PERIOD)
-                .unwrap();
+            phala.fetch_period_block_count(period_end, PERIOD).unwrap();
+            khala.fetch_period_block_count(period_end, PERIOD).unwrap();
 
             let phala_shares = phala.fetch_shares_by_timestamp(period_end).unwrap();
             let khala_shares = khala.fetch_shares_by_timestamp(period_end).unwrap();
