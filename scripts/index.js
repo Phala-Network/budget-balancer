@@ -9,12 +9,12 @@ const main = async () => {
   await waitReady()
   const keyring = new Keyring({type: 'sr25519'})
   const alice = keyring.addFromUri('//Alice')
-  const provider = new WsProvider('wss://pc-test-3.phala.network/khala/ws')
-  const pruntimeURL = 'http://54.39.243.230:8011'
+  const provider = new WsProvider('wss://phala-rpc.dwellir.com')
+  const pruntimeURL = 'https://phat-cluster-de.phala.network/pruntime-01'
   const api = await ApiPromise.create({provider, types})
   const certificate = await signCertificate({api, pair: alice})
   const contractId =
-    '0x316c24fb3e47e12001c3665121b4d923a9525b06e01e683fa1c9f8d37db6d107'
+    '0x4c54a6190a39943581f37b08649871e77565cfba0104cbd4b15e35c3127c32c5'
   const metadata = fs.readFileSync(
     '../target/ink/tokenomic_contract.json',
     'utf-8'
