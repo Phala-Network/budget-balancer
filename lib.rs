@@ -201,7 +201,7 @@ mod tokenomic_contract {
                     ExtraParam::default(),
                 )
                 .unwrap();
-                send_transaction(&self.endpoint, &signed_tx).unwrap();
+                send_transaction(&self.endpoint, &signed_tx).unwrap_or_default();
             }
         }
 
