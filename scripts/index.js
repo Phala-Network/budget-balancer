@@ -14,7 +14,7 @@ const main = async () => {
   const api = await ApiPromise.create({provider, types})
   const certificate = await signCertificate({api, pair: alice})
   const contractId =
-    '0x4c54a6190a39943581f37b08649871e77565cfba0104cbd4b15e35c3127c32c5'
+    '0xaaa789d2b1232cb53e2f3e964d7bf924069becc4979451f9c67935521a7f500e'
   const metadata = fs.readFileSync(
     '../target/ink/tokenomic_contract.json',
     'utf-8'
@@ -30,10 +30,11 @@ const main = async () => {
   )
 
   try {
-    const res = await contract.query.getExecutorAccount(certificate, {})
-    // const res = await contract.query.balance(certificate, {})
+    const res1 = await contract.query.getExecutorAccount(certificate, {})
+    const res2 = await contract.query.balance(certificate, {})
 
-    console.log(res.output.toJSON())
+    console.log(res1.output.toJSON())
+    console.log(res2.output.toJSON())
   } catch (err) {
     console.error(err)
   }

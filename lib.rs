@@ -229,11 +229,11 @@ mod tokenomic_contract {
         }
 
         pub fn fetch_block_by_timestamp(&self, timestamp: u64) -> Result<Block> {
-            self.fetch_block(format!("%7B%20blocksConnection(orderBy%3A%20height_ASC%20first%3A%201%20where%3A%20%7Btimestamp_gte%3A%20%22{}%22%7D%20)%20%7B%20edges%20%7B%20node%20%7B%20timestamp%20height%20%7D%20%7D%20%7D%20%7D", timestamp_to_iso(timestamp as i64)))
+            self.fetch_block(format!("%7B%20blocksConnection(orderBy%3A%20timestamp_ASC%20first%3A%201%20where%3A%20%7Btimestamp_gte%3A%20%22{}%22%7D%20)%20%7B%20edges%20%7B%20node%20%7B%20timestamp%20height%20%7D%20%7D%20%7D%20%7D", timestamp_to_iso(timestamp as i64)))
         }
 
         pub fn fetch_latest_block(&self) -> Result<Block> {
-            self.fetch_block(String::from("%7B%20blocksConnection(orderBy%3A%20height_DESC%20first%3A%201)%20%7B%20edges%20%7B%20node%20%7B%20timestamp%20height%20%7D%20%7D%20%7D%20%7D"))
+            self.fetch_block(String::from("%7B%20blocksConnection(orderBy%3A%20timestamp_DESC%20first%3A%201)%20%7B%20edges%20%7B%20node%20%7B%20timestamp%20height%20%7D%20%7D%20%7D%20%7D"))
         }
 
         pub fn fetch_period_block_count(&mut self, end_time: u64, period: u64) -> Result<u32> {
@@ -314,8 +314,8 @@ mod tokenomic_contract {
             phala.set_budget_per_block(total_shares, halving);
             khala.set_budget_per_block(total_shares, halving);
 
-            phala.send_extrinsic(self.executor_private_key, nonce);
             khala.send_extrinsic(self.executor_private_key, nonce);
+            phala.send_extrinsic(self.executor_private_key, nonce);
 
             Ok((
                 phala.budget_per_block.to_bits(),
