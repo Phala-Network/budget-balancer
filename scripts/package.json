@@ -4,13 +4,15 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "esbuild index.js --bundle --platform=node --outfile=dist/index.js"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@phala/sdk": "^0.4.0",
-    "@polkadot/api": "^9.14.2",
-    "@polkadot/api-contract": "^9.14.2"
+    "@phala/sdk": "beta",
+    "@polkadot/api": "^10.8.1",
+    "@polkadot/api-contract": "^10.8.1",
+    "esbuild": "0.17.19"
   }
 }

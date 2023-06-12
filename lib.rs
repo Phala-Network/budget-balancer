@@ -1,3 +1,4 @@
+#![feature(int_roundings)]
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
@@ -295,8 +296,8 @@ mod tokenomic_contract {
             let timestamp = DateTime::parse_from_rfc3339(&phala_latest_block.timestamp)
                 .unwrap()
                 .timestamp_millis() as u64;
-            let halving_index =
-                HALVING_START_INDEX + ((timestamp as i64 - HALVING_START_TIME) / HALVING_PERIOD);
+            let halving_index = HALVING_START_INDEX
+                + (timestamp as i64 - HALVING_START_TIME).div_ceil(HALVING_PERIOD);
             let halving = pow(HALVING_RATIO, halving_index as u32);
             let period_index = timestamp / PERIOD;
             let period_end = period_index * PERIOD;
