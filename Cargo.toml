@@ -1,12 +1,12 @@
 [package]
-name = "tokenomic_contract"
+name = "budget_balancer"
 version = "0.1.0"
 edition = "2021"
 authors = ["kingsley"]
 
 [dependencies]
 pink-json = { version = "0.4.0", default-features = false }
-ink = { version = "4.0.1", default-features = false }
+ink = { version = "4", default-features = false }
 scale = { package = "parity-scale-codec", version = "3", default-features = false, features = [
     "derive",
 ] }
@@ -17,17 +17,15 @@ serde = { version = "1.0", default-features = false, features = [
     "derive",
     "alloc",
 ] }
-pink-extension = { version = "0.4.1", default-features = false, features = [
-    "ink-as-dependency",
-] }
-pink-subrpc = { version = "0.4.2", default-features = false }
-chrono = { version = "0.4.24", default-features = false, features = [
+pink-extension = { version = "0.5.1", default-features = false }
+pink-subrpc = { version = "0.6.0", default-features = false }
+chrono = { version = "0.4.37", default-features = false, features = [
     "alloc",
     "serde",
 ] }
-fixed = { version = "1.23.1", default-features = false, features = ["serde"] }
+fixed = { version = "1.27.0", default-features = false, features = ["serde"] }
 fixed-macro = { version = "1.2.0", default-features = false }
-pink-web3 = { version = "0.20.1", default-features = false, features = [
+pink-web3 = { version = "0.22.0", default-features = false, features = [
     "pink",
     "signing",
 ] }
@@ -38,16 +36,11 @@ hex = { version = "0.4.3", default-features = false, features = [
 
 
 [dev-dependencies]
-pink-extension-runtime = "0.4.0"
+pink-extension-runtime = "0.5.1"
 
 [lib]
-name = "tokenomic_contract"
+name = "budget_balancer"
 path = "lib.rs"
-crate-type = [
-    # Used for normal contract Wasm blobs.
-    "cdylib",
-    "rlib",
-]
 
 [features]
 default = ["std"]
@@ -61,7 +54,3 @@ std = [
     "pink-json/std",
 ]
 ink-as-dependency = []
-
-[profile.release]
-overflow-checks = false # Disable integer overflow checks.
-lto = false             # Enable full link-time optimization.
